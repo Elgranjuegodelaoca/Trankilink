@@ -108,8 +108,6 @@ const StatBadge: React.FC<{ label: string, value: number, colorClass: string, ic
   </div>
 );
 
-// --- Main App Component ---
-
 export default function App() {
   const [url, setUrl] = useState('');
   const [scanType, setScanType] = useState<'link' | 'qr'>('link');
@@ -119,7 +117,6 @@ export default function App() {
   const [tips, setTips] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // Admin & Scam News state
   const [scams, setScams] = useState<ScamNews[]>([]);
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [adminPassword, setAdminPassword] = useState('');
@@ -128,7 +125,6 @@ export default function App() {
   const [newScamBody, setNewScamBody] = useState('');
   const [adminTab, setAdminTab] = useState<'news' | 'deploy'>('news');
 
-  // Statistics state
   const [stats, setStats] = useState({
     total: 0,
     safe: 0,
@@ -175,8 +171,9 @@ export default function App() {
         dangerous: analysis.riskLevel === RiskLevel.DANGEROUS ? prev.dangerous + 1 : prev.dangerous
       }));
 
-    } catch (err) {
-      setError("No pudimos conectar con las bases de datos. Reintenta pronto.");
+    } catch (err: any) {
+      console.error("Error en el escaneo:", err);
+      setError(err.message || "Error al conectar con la IA.");
     } finally {
       setIsScanning(false);
     }
@@ -262,32 +259,11 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 lg:py-20">
         
-        {/* Statistics Counter Row - 2x2 on mobile, 1x4 on desktop */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-10 sm:mb-16">
-          <StatBadge 
-            label="Analizadas" 
-            value={stats.total} 
-            colorClass="text-blue-500" 
-            icon={<Search />} 
-          />
-          <StatBadge 
-            label="Seguros" 
-            value={stats.safe} 
-            colorClass="text-emerald-500" 
-            icon={<ShieldCheck />} 
-          />
-          <StatBadge 
-            label="Sospechosos" 
-            value={stats.suspicious} 
-            colorClass="text-amber-500" 
-            icon={<AlertTriangle />} 
-          />
-          <StatBadge 
-            label="Peligros" 
-            value={stats.dangerous} 
-            colorClass="text-rose-500" 
-            icon={<ShieldX />} 
-          />
+          <StatBadge label="Analizadas" value={stats.total} colorClass="text-blue-500" icon={<Search />} />
+          <StatBadge label="Seguros" value={stats.safe} colorClass="text-emerald-500" icon={<ShieldCheck />} />
+          <StatBadge label="Sospechosos" value={stats.suspicious} colorClass="text-amber-500" icon={<AlertTriangle />} />
+          <StatBadge label="Peligros" value={stats.dangerous} colorClass="text-rose-500" icon={<ShieldX />} />
         </div>
 
         <div className="grid lg:grid-cols-2 gap-10 lg:gap-20 items-center">
@@ -300,7 +276,7 @@ export default function App() {
                 Escudo <span className="text-transparent bg-clip-text bg-gradient-to-br from-cyan-400 to-blue-600">Digital</span>
               </h1>
               <p className="text-base sm:text-xl text-slate-400 max-w-lg mx-auto lg:mx-0 leading-relaxed font-medium">
-                Analizamos cada enlace y código QR cruzando múltiples bases de datos de amenazas en tiempo real.
+                Analizamos cada enlace y código QR cruzando múltiples fuentes de inteligencia en tiempo real.
               </p>
             </div>
 
@@ -342,6 +318,7 @@ export default function App() {
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   </div>
+                  {error && <p className="mt-4 text-rose-500 text-xs font-bold text-center lg:text-left">{error}</p>}
                 </form>
               ) : (
                 <div className="relative group max-w-2xl mx-auto lg:mx-0">
@@ -350,29 +327,18 @@ export default function App() {
                     onClick={() => fileInputRef.current?.click()}
                     className="relative bg-slate-900/80 backdrop-blur-xl rounded-[1.2rem] sm:rounded-[1.5rem] p-8 sm:p-12 border-2 border-dashed border-slate-800 hover:border-cyan-500/50 transition-all cursor-pointer flex flex-col items-center justify-center gap-4 text-center group"
                   >
-                    <input 
-                      type="file" 
-                      ref={fileInputRef} 
-                      onChange={handleQrUpload} 
-                      accept="image/*" 
-                      className="hidden" 
-                    />
+                    <input type="file" ref={fileInputRef} onChange={handleQrUpload} accept="image/*" className="hidden" />
                     <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl bg-cyan-500/10 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition-transform">
                       <Upload className="w-6 h-6 sm:w-8 sm:h-8" />
                     </div>
                     <div>
                       <h3 className="text-lg sm:text-xl font-black tracking-tight">Cargar imagen QR</h3>
-                      <p className="text-slate-500 text-[10px] sm:text-sm font-medium">Sube una captura o foto de un QR</p>
+                      <p className="text-slate-500 text-[10px] sm:text-sm font-medium">Sube una captura del QR sospechoso</p>
                     </div>
                   </div>
+                  {error && <p className="mt-4 text-rose-500 text-xs font-bold text-center lg:text-left">{error}</p>}
                 </div>
               )}
-            </div>
-
-            <div className="flex flex-wrap justify-center lg:justify-start gap-4 sm:gap-8 text-[8px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest">
-              <div className="flex items-center gap-2"><Database className="w-3 h-3 sm:w-4 sm:h-4 text-cyan-500" /> +50 DBs</div>
-              <div className="flex items-center gap-2"><Shield className="w-3 h-3 sm:w-4 sm:h-4 text-cyan-500" /> Anti-Quishing</div>
-              <div className="flex items-center gap-2"><Cpu className="w-3 h-3 sm:w-4 sm:h-4 text-cyan-500" /> Vision AI v4</div>
             </div>
           </div>
 
@@ -386,7 +352,7 @@ export default function App() {
                 </div>
                 <h3 className="text-lg sm:text-2xl font-black mb-2 sm:mb-3 tracking-tight">Escaneando...</h3>
                 <p className="text-slate-400 text-center max-w-xs font-medium leading-relaxed text-xs sm:text-sm px-4">
-                   Consultando inteligencia de amenazas global y analizando reputación...
+                   Validando reputación y buscando señales de fraude...
                 </p>
               </div>
             ) : result ? (
@@ -414,7 +380,6 @@ export default function App() {
                   </div>
                   <RiskGauge score={result.score} />
                 </div>
-
                 <div className="space-y-6">
                   <div className="bg-slate-900/50 p-4 sm:p-6 rounded-xl sm:rounded-2xl border border-white/5">
                     <h4 className="text-[8px] sm:text-[10px] font-black uppercase text-slate-500 tracking-[0.2em] mb-2 sm:mb-3">Informe IA</h4>
@@ -424,18 +389,13 @@ export default function App() {
               </div>
             ) : (
                <div className="relative overflow-hidden rounded-[1.5rem] sm:rounded-[2.5rem] border border-white/10 shadow-2xl h-[300px] sm:h-[500px]">
-                    <img 
-                    src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&q=80&w=1000" 
-                    alt="Cybersecurity" 
-                    className="w-full h-full object-cover opacity-60"
-                    />
+                    <img src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&q=80&w=1000" alt="Cybersecurity" className="w-full h-full object-cover opacity-60" />
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent"></div>
                 </div>
             )}
           </div>
         </div>
 
-        {/* Scam News Section */}
         <div className="mt-24 sm:mt-40 space-y-10 sm:space-y-16">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 sm:gap-6">
             <h2 className="text-3xl sm:text-5xl font-black tracking-tighter uppercase">Alertas <span className="text-rose-500">Recientes</span></h2>
@@ -446,7 +406,6 @@ export default function App() {
               <Plus className="w-4 h-4 text-rose-500 group-hover:rotate-90 transition-transform" /> Noticia
             </button>
           </div>
-          
           <div className="grid sm:grid-cols-2 gap-6 sm:gap-8">
             {scams.map((scam) => (
                 <div key={scam.id} className="glass-effect p-6 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] border border-white/5 hover:border-rose-500/30 transition-all group relative">
@@ -468,14 +427,12 @@ export default function App() {
         </div>
       </main>
 
-      {/* Admin Panel Modal */}
       {isAdminMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/90 backdrop-blur-sm">
           <div className="glass-effect w-full max-w-lg rounded-[1.5rem] sm:rounded-[2.5rem] border border-white/10 p-6 sm:p-10 relative shadow-2xl overflow-y-auto max-h-[95vh]">
             <button onClick={() => {setIsAdminMode(false); setIsAuthorized(false);}} className="absolute top-4 right-4 sm:top-8 sm:right-8 text-slate-500 hover:text-white p-2">
               <X className="w-5 h-5 sm:w-6 sm:h-6" />
             </button>
-            
             {!isAuthorized ? (
               <form onSubmit={handleAdminLogin} className="space-y-6 sm:space-y-8 py-4">
                 <div className="text-center">
@@ -498,7 +455,6 @@ export default function App() {
                   <button onClick={() => setAdminTab('news')} className={`flex-1 py-2 rounded-lg sm:rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest ${adminTab === 'news' ? 'bg-white text-slate-950 shadow-lg' : 'text-slate-500'}`}>Noticias</button>
                   <button onClick={() => setAdminTab('deploy')} className={`flex-1 py-2 rounded-lg sm:rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest ${adminTab === 'deploy' ? 'bg-cyan-500 text-slate-950 shadow-lg' : 'text-slate-500'}`}>Config</button>
                 </div>
-
                 {adminTab === 'news' ? (
                   <form onSubmit={handleAddScam} className="space-y-4 sm:space-y-6">
                     <h2 className="text-xl sm:text-2xl font-black uppercase text-rose-500">Nueva Alerta</h2>
@@ -515,15 +471,11 @@ export default function App() {
                     <div className="space-y-3 sm:space-y-4">
                         <div className="p-3 sm:p-4 bg-slate-900 rounded-xl sm:rounded-2xl border border-white/5">
                             <h4 className="text-[10px] font-black uppercase text-slate-500 mb-1">Paso 1: API_KEY</h4>
-                            <p className="text-[10px] sm:text-xs text-slate-300 leading-relaxed">Define <code className="text-cyan-400">API_KEY</code> en las <strong>Environment variables</strong> de Netlify.</p>
+                            <p className="text-[10px] sm:text-xs text-slate-300 leading-relaxed">Configura <code className="text-cyan-400">API_KEY</code> en Netlify.</p>
                         </div>
                         <div className="p-3 sm:p-4 bg-slate-900 rounded-xl sm:rounded-2xl border border-white/5">
                             <h4 className="text-[10px] font-black uppercase text-slate-500 mb-1">Paso 2: Build</h4>
-                            <p className="text-[10px] sm:text-xs text-slate-300 leading-relaxed">El build command es <code className="text-cyan-400">npm run build</code> y el directorio es <code className="text-cyan-400">dist</code>.</p>
-                        </div>
-                        <div className="p-3 sm:p-4 bg-slate-900 rounded-xl sm:rounded-2xl border border-white/5 border-l-4 border-l-cyan-500">
-                            <h4 className="text-[10px] font-black uppercase text-cyan-500 mb-1">Redirecciones</h4>
-                            <p className="text-[10px] sm:text-xs text-slate-300 leading-relaxed">El archivo <code className="text-cyan-400">_redirects</code> ya está configurado para que la SPA funcione al refrescar.</p>
+                            <p className="text-[10px] sm:text-xs text-slate-300 leading-relaxed">Command: <code className="text-cyan-400">npm run build</code>, Dir: <code className="text-cyan-400">dist</code>.</p>
                         </div>
                     </div>
                   </div>
@@ -533,7 +485,6 @@ export default function App() {
           </div>
         </div>
       )}
-
       <footer className="border-t border-white/5 mt-20 sm:mt-40 py-8 sm:py-10 text-center px-6">
           <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-[0.2em] sm:tracking-[0.3em] text-slate-600">© 2025 Tranquilink Security. Protegiendo tu huella digital.</p>
       </footer>

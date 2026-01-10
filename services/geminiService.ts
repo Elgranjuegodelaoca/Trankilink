@@ -45,52 +45,63 @@ const analysisSchema = {
 };
 
 export const analyzeUrl = async (url: string): Promise<AnalysisResult> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    throw new Error("API Key no configurada. Configúrala en el panel de Netlify.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Realiza un escaneo profundo de seguridad para la URL: ${url}. 
       
-      INSTRUCCIONES CRÍTICAS:
-      1. Utiliza la herramienta de búsqueda para consultar bases de datos de reputación, reportes de phishing recientes y listas negras de ciberseguridad.
-      2. REGLA DE ORO: Si el enlace es un acortador de URLs (ej: bit.ly, t.co, tinyurl, cutt.ly, is.gd, etc.), clasifícalo automáticamente como DANGEROUS o SUSPICIOUS con una puntuación superior a 85. Justifica que los acortadores ocultan el destino final y son un vector común de ataques.
-      3. Analiza si hay discrepancias entre el texto del enlace y el dominio real.
-      4. Verifica si el dominio es de creación reciente o si suplanta marcas conocidas.`,
+      INSTRUCCIONES:
+      1. Analiza el dominio, el protocolo y la estructura de la URL.
+      2. Si el enlace es un acortador de URLs (ej: bit.ly, t.co, tinyurl, cutt.ly, etc.), clasifícalo como DANGEROUS ya que ocultan el destino.
+      3. Busca señales de suplantación de identidad (typosquatting).
+      4. Clasifica el riesgo y devuelve el JSON según el esquema.`,
       config: {
-        systemInstruction: "Eres un analista senior de ciberseguridad con acceso a inteligencia de amenazas global. Tu misión es proteger al usuario detectando incluso las amenazas más sutiles. Eres extremadamente estricto. Si no puedes verificar la seguridad absoluta de un enlace (como en el caso de los acortadores), debes advertir al usuario con alta severidad.",
-        tools: [{ googleSearch: {} }],
+        systemInstruction: "Eres un analista senior de ciberseguridad. Tu misión es detectar amenazas en URLs. Eres muy estricto y priorizas la seguridad del usuario. Devuelve siempre un objeto JSON válido.",
+        // Se elimina googleSearch porque no garantiza salida JSON según la documentación.
         responseMimeType: "application/json",
         responseSchema: analysisSchema,
       },
     });
 
-    const result = JSON.parse(response.text);
+    const result = JSON.parse(response.text || "{}");
     
-    // Safety check: ensure if it's a known shortener, we force dangerous if AI was too lenient
+    // Safety check manual para acortadores comunes por si la IA es indulgente
     const shorteners = ['bit.ly', 't.co', 'tinyurl', 'cutt.ly', 'is.gd', 'buff.ly', 'ow.ly', 't.me', 'rebrand.ly', 'goo.gl', 'qr.net'];
     const isShortener = shorteners.some(s => url.toLowerCase().includes(s));
     
     if (isShortener && result.riskLevel !== RiskLevel.DANGEROUS) {
       result.riskLevel = RiskLevel.DANGEROUS;
-      result.score = Math.max(result.score, 90);
+      result.score = Math.max(result.score || 0, 90);
+      result.threats = result.threats || [];
       result.threats.push("Uso de acortador de URL (Ocultación de destino)");
-      result.summary = "Este enlace utiliza un servicio de acortamiento. Tranquilink clasifica estos enlaces como peligrosos por defecto ya que ocultan el destino final, una táctica estándar en campañas de phishing y malware (Quishing).";
+      result.summary = "Este enlace utiliza un servicio de acortamiento que oculta el destino final, una táctica estándar en ataques de phishing.";
     }
 
     return {
       url,
-      ...result,
-      riskLevel: result.riskLevel as RiskLevel
+      riskLevel: (result.riskLevel as RiskLevel) || RiskLevel.UNKNOWN,
+      score: result.score || 0,
+      summary: result.summary || "No se pudo generar un resumen.",
+      threats: result.threats || [],
+      recommendations: result.recommendations || [],
+      technicalDetails: result.technicalDetails || { protocol: 'N/A', isIpAddress: false, hasPunycode: false }
     };
   } catch (error) {
-    console.error("Error analyzing URL:", error);
-    throw new Error("Error en el motor de análisis. Por favor, verifica la conexión.");
+    console.error("Error en analyzeUrl:", error);
+    throw error;
   }
 };
 
 export const extractUrlFromQr = async (base64Image: string): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const apiKey = getApiKey();
+  const ai = new GoogleGenAI({ apiKey });
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -111,19 +122,21 @@ export const extractUrlFromQr = async (base64Image: string): Promise<string> => 
     }
     return extracted;
   } catch (error) {
-    console.error("Error extracting QR URL:", error);
-    throw new Error("No pudimos leer el código QR. Asegúrate de que la imagen sea clara.");
+    console.error("Error en extractUrlFromQr:", error);
+    throw new Error("No se pudo leer el QR.");
   }
 };
 
 export const getDailySecurityTips = async (): Promise<string[]> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const apiKey = getApiKey();
+  if (!apiKey) return ["Configura tu API_KEY para recibir consejos actualizados."];
+  
+  const ai = new GoogleGenAI({ apiKey });
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: "Genera 3 consejos de ciberseguridad avanzados y específicos para evitar fraudes online hoy.",
+      contents: "Genera 3 consejos breves de ciberseguridad para hoy.",
       config: {
-        systemInstruction: "Eres un experto en prevención de fraude digital. Proporciona consejos técnicos pero comprensibles.",
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -131,12 +144,12 @@ export const getDailySecurityTips = async (): Promise<string[]> => {
         }
       }
     });
-    return JSON.parse(response.text);
+    return JSON.parse(response.text || "[]");
   } catch (error) {
     return [
-      "Nunca hagas clic en enlaces acortados de fuentes desconocidas; usa siempre un expansor de URLs primero.",
-      "Verifica que el remitente de un correo coincida exactamente con el dominio oficial de la empresa.",
-      "El 'Quishing' (phishing vía QR) está en aumento. Escanea códigos QR solo de fuentes físicas verificadas."
+      "No compartas tus contraseñas con nadie.",
+      "Activa siempre la autenticación de dos factores (2FA).",
+      "Desconfía de enlaces que prometen premios increíbles."
     ];
   }
 };
