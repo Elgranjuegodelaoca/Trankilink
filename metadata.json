@@ -1,0 +1,7 @@
+{
+  "name": "Tranquilink - Tu Guardián de Enlaces",
+  "description": "Una plataforma de ciberseguridad avanzada que utiliza IA para analizar la seguridad de URLs y códigos QR, proporcionando consejos expertos para navegar sin riesgos.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
