@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ShieldCheck, 
@@ -28,14 +29,27 @@ import {
   Key,
   Layers,
   Lightbulb,
-  History,
   CheckCircle2,
   Copy,
-  RefreshCw
+  RefreshCw,
+  Settings
 } from 'lucide-react';
 import { analyzeUrl, getDailySecurityTips, extractUrlFromQr } from './services/geminiService';
 import { AnalysisResult, RiskLevel, ScamNews } from './types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+
+// Definición de tipos para el entorno global
+declare global {
+  // Fix: Separate interface definition for AIStudio to ensure identical modifiers and matching types as required by environment.
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+
+  interface Window {
+    aistudio: AIStudio;
+  }
+}
 
 // --- Sub-components ---
 
@@ -80,7 +94,7 @@ const RiskGauge: React.FC<{ score: number }> = ({ score }) => {
   );
 };
 
-const Navbar = ({ onAdminClick }: { onAdminClick: () => void }) => (
+const Navbar = ({ onAdminClick, onKeySelect, hasKey }: { onAdminClick: () => void, onKeySelect: () => void, hasKey: boolean }) => (
   <nav className="sticky top-0 z-40 w-full bg-slate-950/80 backdrop-blur-md border-b border-white/5">
     <div className="flex items-center justify-between p-4 sm:p-6 max-w-7xl mx-auto w-full">
       <div className="flex items-center gap-3 group cursor-pointer" onClick={() => window.scrollTo({top: 0, behavior: 'smooth'})}>
@@ -89,12 +103,14 @@ const Navbar = ({ onAdminClick }: { onAdminClick: () => void }) => (
         </div>
         <span className="text-xl sm:text-2xl font-black tracking-tighter">TRANQUI<span className="text-cyan-400">LINK</span></span>
       </div>
-      <div className="flex gap-4 sm:gap-8 items-center">
-        <div className="hidden md:flex gap-8 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-          <a href="#analizador" className="hover:text-cyan-400 transition-colors">Analizador</a>
-          <a href="#alertas" className="hover:text-cyan-400 transition-colors">Alertas</a>
-        </div>
-        <div className="h-4 w-[1px] bg-white/10 hidden sm:block"></div>
+      <div className="flex gap-4 sm:gap-6 items-center">
+        <button 
+          onClick={onKeySelect}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border ${hasKey ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'}`}
+        >
+          <Settings className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{hasKey ? 'API Conectada' : 'Configurar API'}</span>
+        </button>
         <button onClick={onAdminClick} className="text-slate-500 hover:text-cyan-400 transition-colors uppercase flex items-center gap-2 text-[10px] font-black tracking-widest">
           <Lock className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Panel Admin</span>
         </button>
@@ -103,29 +119,14 @@ const Navbar = ({ onAdminClick }: { onAdminClick: () => void }) => (
   </nav>
 );
 
-const StatBadge: React.FC<{ label: string, value: number, colorClass: string, icon: React.ReactNode }> = ({ label, value, colorClass, icon }) => (
-  <div className={`glass-effect p-4 sm:p-5 rounded-2xl border-l-4 flex items-center gap-4 transition-all hover:translate-x-1 ${colorClass.replace('text-', 'border-')}`}>
-    <div className={`p-3 rounded-xl bg-slate-900 shadow-inner ${colorClass}`}>
-      {React.cloneElement(icon as React.ReactElement, { className: 'w-5 h-5' })}
-    </div>
-    <div className="min-w-0">
-      <div className="text-2xl sm:text-3xl font-black tracking-tighter leading-none tabular-nums">{value.toLocaleString()}</div>
-      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mt-1 truncate">{label}</div>
-    </div>
-  </div>
-);
-
 export default function App() {
   const [url, setUrl] = useState('');
   const [scanType, setScanType] = useState<'link' | 'qr'>('link');
   const [isScanning, setIsScanning] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
-  const [scanHistory, setScanHistory] = useState<AnalysisResult[]>(() => {
-    const saved = localStorage.getItem('tranquilink_history');
-    return saved ? JSON.parse(saved) : [];
-  });
   const [error, setError] = useState<string | null>(null);
   const [tips, setTips] = useState<string[]>([]);
+  const [hasPersonalKey, setHasPersonalKey] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [scams, setScams] = useState<ScamNews[]>([]);
@@ -136,21 +137,15 @@ export default function App() {
   const [newScamBody, setNewScamBody] = useState('');
   const [adminTab, setAdminTab] = useState<'news' | 'deploy'>('news');
 
-  const [stats, setStats] = useState(() => {
-    const savedStats = localStorage.getItem('tranquilink_stats');
-    if (savedStats) return JSON.parse(savedStats);
-    return { total: 0, safe: 0, suspicious: 0, dangerous: 0 };
-  });
-
   useEffect(() => {
-    localStorage.setItem('tranquilink_stats', JSON.stringify(stats));
-  }, [stats]);
+    const checkKeyStatus = async () => {
+      if (window.aistudio) {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        setHasPersonalKey(hasKey);
+      }
+    };
+    checkKeyStatus();
 
-  useEffect(() => {
-    localStorage.setItem('tranquilink_history', JSON.stringify(scanHistory));
-  }, [scanHistory]);
-
-  useEffect(() => {
     const loadTips = async () => {
       const cached = localStorage.getItem('tranquilink_tips_cache');
       const cacheTimestamp = localStorage.getItem('tranquilink_tips_time');
@@ -182,6 +177,16 @@ export default function App() {
     }
   }, []);
 
+  const handleKeySelection = async () => {
+    try {
+      await window.aistudio.openSelectKey();
+      setHasPersonalKey(true);
+      setError(null);
+    } catch (e) {
+      console.error("Error al seleccionar clave:", e);
+    }
+  };
+
   const handleScan = async (targetUrl?: string) => {
     const urlToAnalyze = targetUrl || url;
     if (!urlToAnalyze.trim()) return;
@@ -198,14 +203,6 @@ export default function App() {
       
       const analysis = await analyzeUrl(formattedUrl);
       setResult(analysis);
-      setScanHistory(prev => [analysis, ...prev].slice(0, 5));
-
-      setStats(prev => ({
-        total: prev.total + 1,
-        safe: analysis.riskLevel === RiskLevel.SAFE ? prev.safe + 1 : prev.safe,
-        suspicious: analysis.riskLevel === RiskLevel.SUSPICIOUS ? prev.suspicious + 1 : prev.suspicious,
-        dangerous: analysis.riskLevel === RiskLevel.DANGEROUS ? prev.dangerous + 1 : prev.dangerous
-      }));
 
     } catch (err: any) {
       setError(err.message || "Error inesperado.");
@@ -284,14 +281,9 @@ export default function App() {
     localStorage.setItem('tranquilink_scams', JSON.stringify(updatedScams));
   };
 
-  const clearHistory = () => {
-    setScanHistory([]);
-    localStorage.removeItem('tranquilink_history');
-  };
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-cyan-500/30 overflow-x-hidden">
-      <Navbar onAdminClick={() => setIsAdminMode(true)} />
+      <Navbar onAdminClick={() => setIsAdminMode(true)} onKeySelect={handleKeySelection} hasKey={hasPersonalKey} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-16">
         
@@ -335,9 +327,19 @@ export default function App() {
                     </button>
                   </div>
                   {error && (
-                    <div className="mt-4 p-5 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-start gap-3 animate-in fade-in slide-in-from-top-4">
-                      <AlertTriangle className="w-5 h-5 text-rose-500 flex-shrink-0 mt-0.5" />
-                      <p className="text-rose-500 text-sm font-bold leading-tight">{error}</p>
+                    <div className="mt-4 p-5 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4">
+                      <div className="flex items-start gap-3">
+                        <AlertTriangle className="w-5 h-5 text-rose-500 flex-shrink-0 mt-0.5" />
+                        <p className="text-rose-500 text-sm font-bold leading-tight">{error}</p>
+                      </div>
+                      {(error.includes("cuota") || error.includes("Límite")) && (
+                        <button 
+                          onClick={handleKeySelection}
+                          className="px-4 py-2 bg-rose-500 text-white text-[10px] font-black uppercase tracking-widest rounded-lg shadow-lg hover:bg-rose-600 transition-colors whitespace-nowrap"
+                        >
+                          Usar mi propia clave
+                        </button>
+                      )}
                     </div>
                   )}
                 </form>
@@ -354,7 +356,14 @@ export default function App() {
                       <p className="text-slate-500 text-sm font-medium">Sube una captura de pantalla o foto del QR</p>
                     </div>
                   </div>
-                  {error && <p className="mt-4 text-rose-500 text-sm font-bold text-center lg:text-left px-4">{error}</p>}
+                  {error && (
+                    <div className="mt-4 p-5 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                      <p className="text-rose-500 text-sm font-bold text-center lg:text-left">{error}</p>
+                      {(error.includes("cuota") || error.includes("Límite")) && (
+                        <button onClick={handleKeySelection} className="px-4 py-2 bg-rose-500 text-white text-[10px] font-black uppercase tracking-widest rounded-lg">Configurar Clave Personal</button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -450,86 +459,47 @@ export default function App() {
           </div>
         </section>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-32">
-          <StatBadge label="Total Analizadas" value={stats.total} colorClass="text-blue-500" icon={<Search />} />
-          <StatBadge label="Navegación Segura" value={stats.safe} colorClass="text-emerald-500" icon={<ShieldCheck />} />
-          <StatBadge label="Sitios Sospechosos" value={stats.suspicious} colorClass="text-amber-500" icon={<AlertTriangle />} />
-          <StatBadge label="Amenazas Bloqueadas" value={stats.dangerous} colorClass="text-rose-500" icon={<ShieldX />} />
-        </div>
-
-        {/* History & Recent News */}
-        <div className="grid lg:grid-cols-3 gap-16">
-          
-          {/* History Sidebar */}
-          <div className="lg:col-span-1 space-y-8">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-black tracking-tight uppercase flex items-center gap-2"><History className="w-6 h-6 text-cyan-500" /> Recientes</h2>
-              {scanHistory.length > 0 && (
-                <button onClick={clearHistory} className="text-[10px] font-black uppercase text-slate-600 hover:text-rose-500 transition-colors">Limpiar</button>
-              )}
+        {/* Scam Alerts Section - Full Width */}
+        <section id="alertas" className="space-y-12">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6">
+            <div className="space-y-2">
+              <h2 className="text-4xl sm:text-5xl font-black tracking-tighter uppercase">Alertas <span className="text-rose-500">Globales</span></h2>
+              <p className="text-slate-500 text-sm font-medium">Informes de estafas detectadas por la comunidad y verificadas.</p>
             </div>
-            
-            <div className="space-y-4">
-              {scanHistory.map((item, idx) => (
-                <div key={idx} onClick={() => setResult(item)} className="glass-effect p-4 rounded-2xl border-l-4 hover:bg-white/5 transition-all cursor-pointer group flex items-center justify-between gap-4 overflow-hidden border-slate-800 hover:border-cyan-500/30">
-                  <div className="min-w-0">
-                    <p className={`text-[10px] font-black uppercase mb-1 ${getRiskColor(item.riskLevel)}`}>{item.riskLevel}</p>
-                    <p className="text-xs font-bold text-slate-400 truncate w-full">{item.url}</p>
+            <button onClick={() => {setIsAdminMode(true); setAdminTab('news');}} className="px-6 py-4 bg-slate-900 border border-slate-800 hover:border-rose-500/50 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-3 group"><Plus className="w-5 h-5 text-rose-500 group-hover:rotate-90 transition-transform" /> Publicar Alerta</button>
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {scams.map((scam) => (
+                <div key={scam.id} className="glass-effect p-8 rounded-[2.5rem] border border-white/5 hover:border-rose-500/30 transition-all group relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-4">
+                    <Newspaper className="w-12 h-12 text-white/5 group-hover:text-rose-500/10 transition-colors" />
                   </div>
-                  <ChevronRight className="w-4 h-4 text-slate-700 group-hover:text-white transition-colors flex-shrink-0" />
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="px-3 py-1 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[10px] font-black uppercase tracking-widest rounded-full">Reporte</div>
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest tabular-nums">{scam.date}</span>
+                  </div>
+                  <h3 className="text-2xl font-black mb-4 tracking-tight group-hover:text-rose-500 transition-colors">{scam.title}</h3>
+                  <p className="text-slate-400 leading-relaxed font-medium mb-8 text-sm line-clamp-3">{scam.description}</p>
+                  <div className="flex items-center justify-between pt-6 border-t border-white/5">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-600 truncate mr-4">Analista: <span className="text-cyan-500">{scam.author}</span></div>
+                    {isAuthorized && (<button onClick={() => handleDeleteScam(scam.id)} className="p-2 text-slate-600 hover:text-rose-500 transition-colors"><Trash2 className="w-5 h-5" /></button>)}
+                  </div>
                 </div>
               ))}
-              {scanHistory.length === 0 && (
-                <div className="py-12 px-6 text-center border-2 border-dashed border-white/5 rounded-3xl">
-                  <p className="text-slate-600 text-xs font-medium italic">No hay historial todavía</p>
+            {scams.length === 0 && (
+              <div className="col-span-full py-24 text-center glass-effect rounded-[3rem] border-dashed border-white/10 space-y-4">
+                <div className="w-16 h-16 bg-slate-900 rounded-full flex items-center justify-center mx-auto text-slate-700">
+                  <ShieldAlert className="w-8 h-8" />
                 </div>
-              )}
-            </div>
-          </div>
-
-          {/* Scam Alerts Section */}
-          <div id="alertas" className="lg:col-span-2 space-y-12">
-            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6">
-              <div className="space-y-2">
-                <h2 className="text-4xl sm:text-5xl font-black tracking-tighter uppercase">Alertas <span className="text-rose-500">Globales</span></h2>
-                <p className="text-slate-500 text-sm font-medium">Informes de estafas detectadas por la comunidad y verificadas.</p>
+                <div>
+                  <h4 className="text-xl font-black text-slate-500 tracking-tight">Zona Segura</h4>
+                  <p className="text-slate-600 text-sm font-medium italic">No se han registrado nuevas alertas de seguridad hoy.</p>
+                </div>
               </div>
-              <button onClick={() => {setIsAdminMode(true); setAdminTab('news');}} className="px-6 py-4 bg-slate-900 border border-slate-800 hover:border-rose-500/50 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-3 group"><Plus className="w-5 h-5 text-rose-500 group-hover:rotate-90 transition-transform" /> Publicar Alerta</button>
-            </div>
-
-            <div className="grid sm:grid-cols-2 gap-6">
-              {scams.map((scam) => (
-                  <div key={scam.id} className="glass-effect p-8 rounded-[2.5rem] border border-white/5 hover:border-rose-500/30 transition-all group relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-4">
-                      <Newspaper className="w-12 h-12 text-white/5 group-hover:text-rose-500/10 transition-colors" />
-                    </div>
-                    <div className="flex items-center gap-3 mb-6">
-                      <div className="px-3 py-1 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[10px] font-black uppercase tracking-widest rounded-full">Reporte</div>
-                      <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest tabular-nums">{scam.date}</span>
-                    </div>
-                    <h3 className="text-2xl font-black mb-4 tracking-tight group-hover:text-rose-500 transition-colors">{scam.title}</h3>
-                    <p className="text-slate-400 leading-relaxed font-medium mb-8 text-sm line-clamp-3">{scam.description}</p>
-                    <div className="flex items-center justify-between pt-6 border-t border-white/5">
-                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-600 truncate mr-4">Analista: <span className="text-cyan-500">{scam.author}</span></div>
-                      {isAuthorized && (<button onClick={() => handleDeleteScam(scam.id)} className="p-2 text-slate-600 hover:text-rose-500 transition-colors"><Trash2 className="w-5 h-5" /></button>)}
-                    </div>
-                  </div>
-                ))}
-              {scams.length === 0 && (
-                <div className="col-span-full py-24 text-center glass-effect rounded-[3rem] border-dashed border-white/10 space-y-4">
-                  <div className="w-16 h-16 bg-slate-900 rounded-full flex items-center justify-center mx-auto text-slate-700">
-                    <ShieldAlert className="w-8 h-8" />
-                  </div>
-                  <div>
-                    <h4 className="text-xl font-black text-slate-500 tracking-tight">Zona Segura</h4>
-                    <p className="text-slate-600 text-sm font-medium italic">No se han registrado nuevas alertas de seguridad hoy.</p>
-                  </div>
-                </div>
-              )}
-            </div>
+            )}
           </div>
-        </div>
+        </section>
       </main>
 
       {/* Admin Modal */}
@@ -602,7 +572,8 @@ export default function App() {
                     <div className="space-y-4">
                         <div className="p-6 bg-slate-900/50 rounded-2xl border border-white/5 group hover:border-cyan-500/30 transition-colors">
                           <h4 className="text-[11px] font-black uppercase text-slate-500 mb-2 tracking-widest flex items-center gap-2"><Key className="w-3.5 h-3.5" /> Clave Gemini API</h4>
-                          <p className="text-xs text-slate-300 leading-relaxed font-medium">Gestionada mediante variables de entorno en el servidor de despliegue.</p>
+                          <p className="text-xs text-slate-300 leading-relaxed font-medium">Puedes usar una clave personal de Google Cloud para evitar límites globales.</p>
+                          <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-[10px] text-cyan-400 underline mt-2 block">Documentación de facturación (Free Tier disponible)</a>
                         </div>
                         <div className="p-6 bg-slate-900/50 rounded-2xl border border-white/5 group hover:border-cyan-500/30 transition-colors">
                           <h4 className="text-[11px] font-black uppercase text-slate-500 mb-2 tracking-widest flex items-center gap-2"><Database className="w-3.5 h-3.5" /> Persistencia Local</h4>

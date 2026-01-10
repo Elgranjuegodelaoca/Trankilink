@@ -1,9 +1,6 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult, RiskLevel } from "../types";
-
-const getApiKey = () => {
-  return process.env.API_KEY || '';
-};
 
 const analysisSchema = {
   type: Type.OBJECT,
@@ -48,30 +45,24 @@ const handleApiError = (error: any) => {
   const errorMessage = error?.message || "";
   const status = error?.status;
 
-  // Error 429 es específicamente cuota
   if (status === 429 || errorMessage.includes("429") || errorMessage.toLowerCase().includes("quota")) {
-    throw new Error("Límite global de la comunidad alcanzado. El servidor de Google está saturado para esta clave de API. Por favor, reintenta en un par de minutos.");
+    throw new Error("Límite de cuota alcanzado. Para continuar analizando sin esperas, configura tu propia clave API personal desde el botón superior.");
   }
   
-  // Error 400 suele ser por contenido bloqueado o mal formado
   if (status === 400 || errorMessage.includes("400")) {
-    throw new Error("La IA no pudo procesar esta URL (puede que contenga términos bloqueados por seguridad).");
+    throw new Error("La IA no pudo procesar esta URL por restricciones de seguridad o formato inválido.");
   }
 
   if (errorMessage.includes("API key not valid") || status === 401) {
-    throw new Error("La clave de API no es válida o ha sido revocada.");
+    throw new Error("La clave de API actual no es válida. Por favor, selecciona una nueva.");
   }
 
   throw new Error("Error de conexión con la inteligencia de Tranquilink. Reintenta en unos instantes.");
 };
 
 export const analyzeUrl = async (url: string): Promise<AnalysisResult> => {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error("API Key no configurada en el servidor.");
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
+  // Always create a fresh instance with the environment API key as per rules.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   try {
     const response = await ai.models.generateContent({
@@ -84,9 +75,9 @@ export const analyzeUrl = async (url: string): Promise<AnalysisResult> => {
       },
     });
 
+    // Extract text from response using the .text property directly.
     const result = JSON.parse(response.text || "{}");
     
-    // Doble verificación para dominios muy sospechosos
     const suspiciousPatterns = ['login', 'verify', 'update-account', 'secure-bank', 'netflix-payment'];
     const lowerUrl = url.toLowerCase();
     if (suspiciousPatterns.some(p => lowerUrl.includes(p)) && result.riskLevel === RiskLevel.SAFE) {
@@ -110,15 +101,17 @@ export const analyzeUrl = async (url: string): Promise<AnalysisResult> => {
 };
 
 export const extractUrlFromQr = async (base64Image: string): Promise<string> => {
-  const apiKey = getApiKey();
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
+    // Fix: Correct multi-part content structure for multimodal input.
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: [
-        { inlineData: { data: base64Image.split(',')[1] || base64Image, mimeType: "image/jpeg" } },
-        { text: "Lee el código QR y devuelve SOLO la URL. Si no hay URL, di 'ERROR'." }
-      ]
+      contents: {
+        parts: [
+          { inlineData: { data: base64Image.split(',')[1] || base64Image, mimeType: "image/jpeg" } },
+          { text: "Lee el código QR y devuelve SOLO la URL. Si no hay URL, di 'ERROR'." }
+        ]
+      }
     });
     
     const extracted = response.text?.trim() || '';
@@ -132,10 +125,7 @@ export const extractUrlFromQr = async (base64Image: string): Promise<string> => 
 };
 
 export const getDailySecurityTips = async (): Promise<string[]> => {
-  const apiKey = getApiKey();
-  if (!apiKey) return ["Usa contraseñas robustas."];
-  
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -147,7 +137,6 @@ export const getDailySecurityTips = async (): Promise<string[]> => {
     });
     return JSON.parse(response.text || "[]");
   } catch (error) {
-    // No lanzamos error aquí para no romper la UI, usamos fallback
     return [
       "Activa siempre la autenticación de dos factores (2FA).",
       "No hagas clic en enlaces de correos electrónicos no solicitados.",
