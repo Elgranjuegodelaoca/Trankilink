@@ -1,9 +1,10 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult, RiskLevel } from "../types";
 
-// Always use the API key directly from process.env.API_KEY as per guidelines
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Netlify inyectará esto durante el build si se configura en el panel de Environment Variables
+const getApiKey = () => {
+  return process.env.API_KEY || '';
+};
 
 const analysisSchema = {
   type: Type.OBJECT,
@@ -44,6 +45,8 @@ const analysisSchema = {
 };
 
 export const analyzeUrl = async (url: string): Promise<AnalysisResult> => {
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -87,6 +90,7 @@ export const analyzeUrl = async (url: string): Promise<AnalysisResult> => {
 };
 
 export const extractUrlFromQr = async (base64Image: string): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -113,6 +117,7 @@ export const extractUrlFromQr = async (base64Image: string): Promise<string> => 
 };
 
 export const getDailySecurityTips = async (): Promise<string[]> => {
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
