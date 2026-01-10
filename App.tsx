@@ -481,7 +481,6 @@ export default function App() {
                 <div className="text-center">
                   <Key className="w-10 h-10 sm:w-12 sm:h-12 text-cyan-500 mx-auto mb-4" />
                   <h2 className="text-xl sm:text-2xl font-black uppercase">Acceso Panel</h2>
-                  <p className="text-slate-500 text-[10px] sm:text-sm mt-1">Clave maestra: 9i8u7y*</p>
                 </div>
                 <input 
                   type="password" 
