@@ -44,24 +44,31 @@ const analysisSchema = {
 };
 
 const handleApiError = (error: any) => {
-  console.error("Detalle del error de API:", error);
-  const message = error?.message || "";
-  
-  if (message.includes("429") || message.toLowerCase().includes("quota")) {
-    throw new Error("Límite de consultas alcanzado. Por favor, espera un minuto antes de intentar otro escaneo.");
+  console.error("Detalle completo del error:", error);
+  const errorMessage = error?.message || "";
+  const status = error?.status;
+
+  // Error 429 es específicamente cuota
+  if (status === 429 || errorMessage.includes("429") || errorMessage.toLowerCase().includes("quota")) {
+    throw new Error("Límite global de la comunidad alcanzado. El servidor de Google está saturado para esta clave de API. Por favor, reintenta en un par de minutos.");
   }
   
-  if (message.includes("401") || message.includes("403")) {
-    throw new Error("Error de autenticación. Revisa la API KEY en la configuración.");
+  // Error 400 suele ser por contenido bloqueado o mal formado
+  if (status === 400 || errorMessage.includes("400")) {
+    throw new Error("La IA no pudo procesar esta URL (puede que contenga términos bloqueados por seguridad).");
   }
 
-  throw new Error("El servicio de inteligencia está saturado. Reintenta en unos instantes.");
+  if (errorMessage.includes("API key not valid") || status === 401) {
+    throw new Error("La clave de API no es válida o ha sido revocada.");
+  }
+
+  throw new Error("Error de conexión con la inteligencia de Tranquilink. Reintenta en unos instantes.");
 };
 
 export const analyzeUrl = async (url: string): Promise<AnalysisResult> => {
   const apiKey = getApiKey();
   if (!apiKey) {
-    throw new Error("API Key no configurada.");
+    throw new Error("API Key no configurada en el servidor.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -69,9 +76,9 @@ export const analyzeUrl = async (url: string): Promise<AnalysisResult> => {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Realiza un escaneo profundo de seguridad para la URL: ${url}. Analiza el dominio, el protocolo y la estructura. Clasifica el riesgo y devuelve JSON.`,
+      contents: `Analiza la seguridad de la URL: ${url}. Determina si es phishing, malware o segura. Devuelve JSON.`,
       config: {
-        systemInstruction: "Eres un analista senior de ciberseguridad. Devuelve siempre un objeto JSON válido según el esquema proporcionado.",
+        systemInstruction: "Actúa como un experto en ciberseguridad forense. Analiza URLs buscando patrones de engaño. Devuelve siempre JSON.",
         responseMimeType: "application/json",
         responseSchema: analysisSchema,
       },
@@ -79,14 +86,13 @@ export const analyzeUrl = async (url: string): Promise<AnalysisResult> => {
 
     const result = JSON.parse(response.text || "{}");
     
-    // Safety check manual para acortadores
-    const shorteners = ['bit.ly', 't.co', 'tinyurl', 'cutt.ly', 'is.gd', 't.me', 'goo.gl'];
-    const isShortener = shorteners.some(s => url.toLowerCase().includes(s));
-    
-    if (isShortener && result.riskLevel !== RiskLevel.DANGEROUS) {
-      result.riskLevel = RiskLevel.DANGEROUS;
-      result.score = 95;
-      result.summary = "Este enlace utiliza un acortador para ocultar el destino real, técnica común en estafas.";
+    // Doble verificación para dominios muy sospechosos
+    const suspiciousPatterns = ['login', 'verify', 'update-account', 'secure-bank', 'netflix-payment'];
+    const lowerUrl = url.toLowerCase();
+    if (suspiciousPatterns.some(p => lowerUrl.includes(p)) && result.riskLevel === RiskLevel.SAFE) {
+      result.riskLevel = RiskLevel.SUSPICIOUS;
+      result.score = Math.max(result.score, 45);
+      result.summary += " (Nota: La URL contiene palabras clave usadas frecuentemente en phishing).";
     }
 
     return {
@@ -111,13 +117,13 @@ export const extractUrlFromQr = async (base64Image: string): Promise<string> => 
       model: "gemini-3-flash-preview",
       contents: [
         { inlineData: { data: base64Image.split(',')[1] || base64Image, mimeType: "image/jpeg" } },
-        { text: "Extrae únicamente la URL de este código QR. Si no hay, responde 'No URL'." }
+        { text: "Lee el código QR y devuelve SOLO la URL. Si no hay URL, di 'ERROR'." }
       ]
     });
     
     const extracted = response.text?.trim() || '';
-    if (extracted.toLowerCase().includes('no url')) {
-      throw new Error("No se detectó una URL en este código QR.");
+    if (extracted.toUpperCase().includes('ERROR') || !extracted.includes('.')) {
+      throw new Error("No se detectó una URL válida en la imagen.");
     }
     return extracted;
   } catch (error) {
@@ -127,13 +133,13 @@ export const extractUrlFromQr = async (base64Image: string): Promise<string> => 
 
 export const getDailySecurityTips = async (): Promise<string[]> => {
   const apiKey = getApiKey();
-  if (!apiKey) return ["Navega siempre con precaución."];
+  if (!apiKey) return ["Usa contraseñas robustas."];
   
   const ai = new GoogleGenAI({ apiKey });
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: "Genera 3 consejos breves de ciberseguridad.",
+      contents: "Genera 3 consejos de ciberseguridad para usuarios normales. Máximo 15 palabras por consejo.",
       config: {
         responseMimeType: "application/json",
         responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
@@ -141,10 +147,11 @@ export const getDailySecurityTips = async (): Promise<string[]> => {
     });
     return JSON.parse(response.text || "[]");
   } catch (error) {
+    // No lanzamos error aquí para no romper la UI, usamos fallback
     return [
-      "No compartas contraseñas por chat.",
-      "Activa la verificación en dos pasos.",
-      "Revisa siempre el remitente de los correos."
+      "Activa siempre la autenticación de dos factores (2FA).",
+      "No hagas clic en enlaces de correos electrónicos no solicitados.",
+      "Mantén tu sistema operativo y aplicaciones actualizadas."
     ];
   }
 };

@@ -26,7 +26,8 @@ import {
   Plus,
   Trash2,
   Key,
-  Layers
+  Layers,
+  Lightbulb
 } from 'lucide-react';
 import { analyzeUrl, getDailySecurityTips, extractUrlFromQr } from './services/geminiService';
 import { AnalysisResult, RiskLevel, ScamNews } from './types';
@@ -125,38 +126,47 @@ export default function App() {
   const [newScamBody, setNewScamBody] = useState('');
   const [adminTab, setAdminTab] = useState<'news' | 'deploy'>('news');
 
-  // Inicialización de estadísticas reseteadas a cero para comenzar un recuento limpio
   const [stats, setStats] = useState(() => {
     const savedStats = localStorage.getItem('tranquilink_stats');
-    if (savedStats) {
-      return JSON.parse(savedStats);
-    }
-    // Comenzamos desde cero como se solicitó
-    return {
-      total: 0,
-      safe: 0,
-      suspicious: 0,
-      dangerous: 0
-    };
+    if (savedStats) return JSON.parse(savedStats);
+    return { total: 0, safe: 0, suspicious: 0, dangerous: 0 };
   });
 
-  // Persistir estadísticas cada vez que cambien
   useEffect(() => {
     localStorage.setItem('tranquilink_stats', JSON.stringify(stats));
   }, [stats]);
 
   useEffect(() => {
-    getDailySecurityTips().then(setTips);
+    // Lógica de caché para consejos (24 horas) para ahorrar cuota de API
+    const loadTips = async () => {
+      const cached = localStorage.getItem('tranquilink_tips_cache');
+      const cacheTimestamp = localStorage.getItem('tranquilink_tips_time');
+      const now = Date.now();
+      const oneDay = 24 * 60 * 60 * 1000;
+
+      if (cached && cacheTimestamp && (now - parseInt(cacheTimestamp)) < oneDay) {
+        setTips(JSON.parse(cached));
+      } else {
+        try {
+          const freshTips = await getDailySecurityTips();
+          setTips(freshTips);
+          localStorage.setItem('tranquilink_tips_cache', JSON.stringify(freshTips));
+          localStorage.setItem('tranquilink_tips_time', now.toString());
+        } catch (e) {
+          setTips(["Mantén tus contraseñas seguras.", "Activa el 2FA siempre que puedas."]);
+        }
+      }
+    };
+    
+    loadTips();
+
     const savedScams = localStorage.getItem('tranquilink_scams');
+    // Se eliminan los valores por defecto preestablecidos
     if (savedScams) {
       setScams(JSON.parse(savedScams));
     } else {
-      const defaults: ScamNews[] = [
-        { id: '1', title: 'Falso paquete de Correos', description: 'Campaña masiva de SMS indicando una tasa de aduana pendiente. El enlace redirige a una web clonada de Correos.', date: '22 Mayo, 2025', author: 'Admin' },
-        { id: '2', title: 'Estafa de inversión en IA', description: 'Plataformas que prometen rentabilidades del 300% usando "trading algorítmico". Al depositar, la cuenta desaparece.', date: '21 Mayo, 2025', author: 'Admin' }
-      ];
-      setScams(defaults);
-      localStorage.setItem('tranquilink_scams', JSON.stringify(defaults));
+      setScams([]);
+      localStorage.setItem('tranquilink_scams', JSON.stringify([]));
     }
   }, []);
 
@@ -177,7 +187,6 @@ export default function App() {
       const analysis = await analyzeUrl(formattedUrl);
       setResult(analysis);
 
-      // Actualizar contadores globales persistentes
       setStats(prev => ({
         total: prev.total + 1,
         safe: analysis.riskLevel === RiskLevel.SAFE ? prev.safe + 1 : prev.safe,
@@ -186,8 +195,7 @@ export default function App() {
       }));
 
     } catch (err: any) {
-      console.error("Error en el escaneo:", err);
-      setError(err.message || "Error al conectar con la IA.");
+      setError(err.message || "Error inesperado.");
     } finally {
       setIsScanning(false);
     }
@@ -232,17 +240,13 @@ export default function App() {
 
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminPassword === '9i8u7y*') { 
-      setIsAuthorized(true);
-    } else {
-      alert('Contraseña incorrecta');
-    }
+    if (adminPassword === '9i8u7y*') setIsAuthorized(true);
+    else alert('Contraseña incorrecta');
   };
 
   const handleAddScam = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newScamTitle || !newScamBody) return;
-
     const newScam: ScamNews = {
       id: Date.now().toString(),
       title: newScamTitle,
@@ -250,15 +254,10 @@ export default function App() {
       date: new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }),
       author: 'Admin'
     };
-
     const updatedScams = [newScam, ...scams];
     setScams(updatedScams);
     localStorage.setItem('tranquilink_scams', JSON.stringify(updatedScams));
-    setNewScamTitle('');
-    setNewScamBody('');
-    setIsAdminMode(false);
-    setIsAuthorized(false);
-    setAdminPassword('');
+    setNewScamTitle(''); setNewScamBody(''); setIsAdminMode(false); setIsAuthorized(false); setAdminPassword('');
   };
 
   const handleDeleteScam = (id: string) => {
@@ -273,7 +272,6 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 lg:py-20">
         
-        {/* Contadores acumulativos */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-10 sm:mb-16">
           <StatBadge label="Total Analizadas" value={stats.total} colorClass="text-blue-500" icon={<Search />} />
           <StatBadge label="Enlaces Seguros" value={stats.safe} colorClass="text-emerald-500" icon={<ShieldCheck />} />
@@ -291,24 +289,14 @@ export default function App() {
                 Escudo <span className="text-transparent bg-clip-text bg-gradient-to-br from-cyan-400 to-blue-600">Digital</span>
               </h1>
               <p className="text-base sm:text-xl text-slate-400 max-w-lg mx-auto lg:mx-0 leading-relaxed font-medium">
-                Analizamos cada enlace y código QR cruzando múltiples fuentes de inteligencia en tiempo real. Tu seguridad es nuestra prioridad.
+                Analizamos cada enlace y código QR cruzando múltiples fuentes de inteligencia en tiempo real.
               </p>
             </div>
 
             <div className="space-y-4 sm:space-y-6">
               <div className="flex gap-2 sm:gap-4 p-1 bg-slate-900 border border-slate-800 rounded-2xl w-fit mx-auto lg:mx-0">
-                <button 
-                  onClick={() => setScanType('link')}
-                  className={`flex items-center gap-2 px-4 sm:px-6 py-2 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all ${scanType === 'link' ? 'bg-cyan-500 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-                >
-                  <LinkIcon className="w-4 h-4" /> Enlace
-                </button>
-                <button 
-                  onClick={() => setScanType('qr')}
-                  className={`flex items-center gap-2 px-4 sm:px-6 py-2 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all ${scanType === 'qr' ? 'bg-cyan-500 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-                >
-                  <QrCode className="w-4 h-4" /> QR
-                </button>
+                <button onClick={() => setScanType('link')} className={`flex items-center gap-2 px-4 sm:px-6 py-2 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all ${scanType === 'link' ? 'bg-cyan-500 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}><LinkIcon className="w-4 h-4" /> Enlace</button>
+                <button onClick={() => setScanType('qr')} className={`flex items-center gap-2 px-4 sm:px-6 py-2 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all ${scanType === 'qr' ? 'bg-cyan-500 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}><QrCode className="w-4 h-4" /> QR</button>
               </div>
 
               {scanType === 'link' ? (
@@ -317,39 +305,27 @@ export default function App() {
                   <div className="relative flex flex-col sm:flex-row items-stretch sm:items-center bg-slate-900/80 backdrop-blur-xl rounded-[1.2rem] sm:rounded-[1.5rem] p-2 sm:p-3 border border-slate-800 focus-within:border-cyan-500/50 transition-all gap-2">
                     <div className="flex items-center flex-1">
                       <Search className="ml-3 sm:ml-4 text-slate-500 w-5 h-5 sm:w-6 sm:h-6 flex-shrink-0" />
-                      <input 
-                        type="text" 
-                        value={url}
-                        onChange={(e) => setUrl(e.target.value)}
-                        placeholder="Introduce URL..."
-                        className="w-full bg-transparent border-none focus:ring-0 text-slate-100 px-3 sm:px-4 py-3 sm:py-4 text-sm sm:text-lg placeholder:text-slate-600"
-                      />
+                      <input type="text" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Introduce URL..." className="w-full bg-transparent border-none focus:ring-0 text-slate-100 px-3 sm:px-4 py-3 sm:py-4 text-sm sm:text-lg placeholder:text-slate-600" />
                     </div>
-                    <button 
-                      disabled={isScanning}
-                      className="px-6 sm:px-10 py-3 sm:py-4 bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-800 text-slate-950 font-black rounded-xl sm:rounded-2xl transition-all shadow-lg active:scale-95 flex items-center justify-center gap-3 uppercase text-[10px] sm:text-xs tracking-widest"
-                    >
-                      {isScanning ? 'Analizando...' : 'Escanear'}
-                      <ArrowRight className="w-4 h-4" />
+                    <button disabled={isScanning} className="px-6 sm:px-10 py-3 sm:py-4 bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-800 text-slate-950 font-black rounded-xl sm:rounded-2xl transition-all shadow-lg active:scale-95 flex items-center justify-center gap-3 uppercase text-[10px] sm:text-xs tracking-widest">
+                      {isScanning ? 'Analizando...' : 'Escanear'} <ArrowRight className="w-4 h-4" />
                     </button>
                   </div>
-                  {error && <p className="mt-4 text-rose-500 text-xs font-bold text-center lg:text-left">{error}</p>}
+                  {error && (
+                    <div className="mt-4 p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl">
+                      <p className="text-rose-500 text-xs font-bold flex items-center gap-2 justify-center lg:justify-start">
+                        <AlertTriangle className="w-4 h-4" /> {error}
+                      </p>
+                    </div>
+                  )}
                 </form>
               ) : (
                 <div className="relative group max-w-2xl mx-auto lg:mx-0">
                   <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-[1.5rem] sm:rounded-[2rem] blur opacity-20 transition duration-500"></div>
-                  <div 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="relative bg-slate-900/80 backdrop-blur-xl rounded-[1.2rem] sm:rounded-[1.5rem] p-8 sm:p-12 border-2 border-dashed border-slate-800 hover:border-cyan-500/50 transition-all cursor-pointer flex flex-col items-center justify-center gap-4 text-center group"
-                  >
+                  <div onClick={() => fileInputRef.current?.click()} className="relative bg-slate-900/80 backdrop-blur-xl rounded-[1.2rem] sm:rounded-[1.5rem] p-8 sm:p-12 border-2 border-dashed border-slate-800 hover:border-cyan-500/50 transition-all cursor-pointer flex flex-col items-center justify-center gap-4 text-center group">
                     <input type="file" ref={fileInputRef} onChange={handleQrUpload} accept="image/*" className="hidden" />
-                    <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl bg-cyan-500/10 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition-transform">
-                      <Upload className="w-6 h-6 sm:w-8 sm:h-8" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg sm:text-xl font-black tracking-tight">Cargar imagen QR</h3>
-                      <p className="text-slate-500 text-[10px] sm:text-sm font-medium">Sube una captura del QR sospechoso</p>
-                    </div>
+                    <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl bg-cyan-500/10 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition-transform"><Upload className="w-6 h-6 sm:w-8 sm:h-8" /></div>
+                    <div><h3 className="text-lg sm:text-xl font-black tracking-tight">Cargar imagen QR</h3><p className="text-slate-500 text-[10px] sm:text-sm font-medium">Sube una captura del QR sospechoso</p></div>
                   </div>
                   {error && <p className="mt-4 text-rose-500 text-xs font-bold text-center lg:text-left">{error}</p>}
                 </div>
@@ -366,46 +342,39 @@ export default function App() {
                     <Cpu className="absolute inset-0 m-auto w-6 h-6 sm:w-10 sm:h-10 text-cyan-500 animate-pulse" />
                 </div>
                 <h3 className="text-lg sm:text-2xl font-black mb-2 sm:mb-3 tracking-tight">Escaneando...</h3>
-                <p className="text-slate-400 text-center max-w-xs font-medium leading-relaxed text-xs sm:text-sm px-4">
-                   Validando reputación y buscando señales de fraude...
-                </p>
+                <p className="text-slate-400 text-center max-w-xs font-medium leading-relaxed text-xs sm:text-sm px-4">Validando reputación y buscando señales de fraude...</p>
               </div>
             ) : result ? (
-              <div className={`glass-effect rounded-[1.5rem] sm:rounded-[2.5rem] p-6 sm:p-10 border-t-[6px] sm:border-t-[8px] transition-all duration-700 ${
-                result.riskLevel === RiskLevel.SAFE ? 'border-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.1)]' :
-                result.riskLevel === RiskLevel.SUSPICIOUS ? 'border-amber-500 shadow-[0_0_30px_rgba(245,158,11,0.1)]' : 
-                'border-rose-600 shadow-[0_0_30px_rgba(225,29,72,0.2)]'
-              }`}>
+              <div className={`glass-effect rounded-[1.5rem] sm:rounded-[2.5rem] p-6 sm:p-10 border-t-[6px] sm:border-t-[8px] transition-all duration-700 ${result.riskLevel === RiskLevel.SAFE ? 'border-emerald-500' : result.riskLevel === RiskLevel.SUSPICIOUS ? 'border-amber-500' : 'border-rose-600'}`}>
                 <div className="flex flex-col items-center gap-6 sm:gap-8 mb-8">
                   <div className="flex flex-col items-center gap-4 text-center">
-                    <div className={`p-4 sm:p-5 rounded-2xl sm:rounded-3xl ${
-                        result.riskLevel === RiskLevel.SAFE ? 'bg-emerald-500/10 text-emerald-500' :
-                        result.riskLevel === RiskLevel.SUSPICIOUS ? 'bg-amber-500/10 text-amber-500' : 'bg-rose-500/10 text-rose-500'
-                    }`}>
-                        {result.riskLevel === RiskLevel.SAFE ? <ShieldCheck className="w-8 h-8 sm:w-12 sm:h-12" /> : 
-                         result.riskLevel === RiskLevel.SUSPICIOUS ? <AlertTriangle className="w-8 h-8 sm:w-12 sm:h-12" /> : <ShieldX className="w-8 h-8 sm:w-12 sm:h-12" />}
+                    <div className={`p-4 sm:p-5 rounded-2xl sm:rounded-3xl ${result.riskLevel === RiskLevel.SAFE ? 'bg-emerald-500/10 text-emerald-500' : result.riskLevel === RiskLevel.SUSPICIOUS ? 'bg-amber-500/10 text-amber-500' : 'bg-rose-500/10 text-rose-500'}`}>
+                        {result.riskLevel === RiskLevel.SAFE ? <ShieldCheck className="w-8 h-8 sm:w-12 sm:h-12" /> : result.riskLevel === RiskLevel.SUSPICIOUS ? <AlertTriangle className="w-8 h-8 sm:w-12 sm:h-12" /> : <ShieldX className="w-8 h-8 sm:w-12 sm:h-12" />}
                     </div>
                     <div>
-                      <h3 className={`text-2xl sm:text-4xl font-black tracking-tighter uppercase ${getRiskColor(result.riskLevel)}`}>
-                        {result.riskLevel === RiskLevel.SAFE ? 'Seguro' : 
-                         result.riskLevel === RiskLevel.SUSPICIOUS ? 'Sospechoso' : 'Peligro'}
-                      </h3>
+                      <h3 className={`text-2xl sm:text-4xl font-black tracking-tighter uppercase ${getRiskColor(result.riskLevel)}`}>{result.riskLevel === RiskLevel.SAFE ? 'Seguro' : result.riskLevel === RiskLevel.SUSPICIOUS ? 'Sospechoso' : 'Peligro'}</h3>
                       <p className="text-[10px] font-bold text-slate-500 break-all max-w-[200px] sm:max-w-xs mx-auto mt-1">{result.url}</p>
                     </div>
                   </div>
                   <RiskGauge score={result.score} />
                 </div>
-                <div className="space-y-6">
-                  <div className="bg-slate-900/50 p-4 sm:p-6 rounded-xl sm:rounded-2xl border border-white/5">
-                    <h4 className="text-[8px] sm:text-[10px] font-black uppercase text-slate-500 tracking-[0.2em] mb-2 sm:mb-3">Informe IA</h4>
-                    <p className="text-slate-300 font-medium leading-relaxed text-xs sm:text-base">{result.summary}</p>
-                  </div>
+                <div className="bg-slate-900/50 p-4 sm:p-6 rounded-xl sm:rounded-2xl border border-white/5">
+                  <h4 className="text-[8px] sm:text-[10px] font-black uppercase text-slate-500 tracking-[0.2em] mb-2 sm:mb-3">Informe IA</h4>
+                  <p className="text-slate-300 font-medium leading-relaxed text-xs sm:text-base">{result.summary}</p>
                 </div>
               </div>
             ) : (
                <div className="relative overflow-hidden rounded-[1.5rem] sm:rounded-[2.5rem] border border-white/10 shadow-2xl h-[300px] sm:h-[500px]">
                     <img src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&q=80&w=1000" alt="Cybersecurity" className="w-full h-full object-cover opacity-60" />
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent"></div>
+                    {tips.length > 0 && (
+                      <div className="absolute bottom-8 left-8 right-8 p-6 glass-effect rounded-2xl border-cyan-500/20">
+                        <div className="flex items-center gap-2 mb-2 text-cyan-400 text-[10px] font-black uppercase">
+                          <Lightbulb className="w-4 h-4" /> Consejo Pro
+                        </div>
+                        <p className="text-slate-200 text-sm font-medium">{tips[Math.floor(Math.random() * tips.length)]}</p>
+                      </div>
+                    )}
                 </div>
             )}
           </div>
@@ -414,30 +383,22 @@ export default function App() {
         <div className="mt-24 sm:mt-40 space-y-10 sm:space-y-16">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 sm:gap-6">
             <h2 className="text-3xl sm:text-5xl font-black tracking-tighter uppercase">Alertas <span className="text-rose-500">Recientes</span></h2>
-            <button 
-              onClick={() => {setIsAdminMode(true); setAdminTab('news');}}
-              className="w-full sm:w-auto px-6 py-3 bg-slate-900 border border-slate-800 hover:border-rose-500/50 rounded-xl sm:rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 group"
-            >
-              <Plus className="w-4 h-4 text-rose-500 group-hover:rotate-90 transition-transform" /> Noticia
-            </button>
+            <button onClick={() => {setIsAdminMode(true); setAdminTab('news');}} className="w-full sm:w-auto px-6 py-3 bg-slate-900 border border-slate-800 hover:border-rose-500/50 rounded-xl sm:rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 group"><Plus className="w-4 h-4 text-rose-500 group-hover:rotate-90 transition-transform" /> Noticia</button>
           </div>
           <div className="grid sm:grid-cols-2 gap-6 sm:gap-8">
             {scams.map((scam) => (
                 <div key={scam.id} className="glass-effect p-6 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] border border-white/5 hover:border-rose-500/30 transition-all group relative">
-                  <div className="flex items-center gap-3 mb-4 sm:mb-6">
-                    <div className="px-2 py-0.5 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[8px] sm:text-[10px] font-black uppercase tracking-widest rounded-full">Alerta</div>
-                    <span className="text-[8px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-widest">{scam.date}</span>
-                  </div>
+                  <div className="flex items-center gap-3 mb-4 sm:mb-6"><div className="px-2 py-0.5 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[8px] sm:text-[10px] font-black uppercase tracking-widest rounded-full">Alerta</div><span className="text-[8px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-widest">{scam.date}</span></div>
                   <h3 className="text-xl sm:text-2xl font-black mb-3 sm:mb-4 tracking-tight group-hover:text-rose-500 transition-colors">{scam.title}</h3>
                   <p className="text-slate-400 leading-relaxed font-medium mb-6 sm:mb-8 text-sm sm:text-base">{scam.description}</p>
-                  <div className="flex items-center justify-between">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-600 truncate mr-4">Reporte: <span className="text-cyan-500">{scam.author}</span></div>
-                    {isAuthorized && (
-                      <button onClick={() => handleDeleteScam(scam.id)} className="p-2 text-slate-600 hover:text-rose-500"><Trash2 className="w-4 h-4 sm:w-5 sm:h-5" /></button>
-                    )}
-                  </div>
+                  <div className="flex items-center justify-between"><div className="text-[10px] font-black uppercase tracking-widest text-slate-600 truncate mr-4">Reporte: <span className="text-cyan-500">{scam.author}</span></div>{isAuthorized && (<button onClick={() => handleDeleteScam(scam.id)} className="p-2 text-slate-600 hover:text-rose-500"><Trash2 className="w-4 h-4 sm:w-5 sm:h-5" /></button>)}</div>
                 </div>
               ))}
+            {scams.length === 0 && (
+              <div className="col-span-full py-12 text-center glass-effect rounded-[2rem] border-dashed border-white/10">
+                <p className="text-slate-500 font-medium italic">No hay alertas de seguridad activas en este momento.</p>
+              </div>
+            )}
           </div>
         </div>
       </main>
@@ -445,23 +406,11 @@ export default function App() {
       {isAdminMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/90 backdrop-blur-sm">
           <div className="glass-effect w-full max-w-lg rounded-[1.5rem] sm:rounded-[2.5rem] border border-white/10 p-6 sm:p-10 relative shadow-2xl overflow-y-auto max-h-[95vh]">
-            <button onClick={() => {setIsAdminMode(false); setIsAuthorized(false);}} className="absolute top-4 right-4 sm:top-8 sm:right-8 text-slate-500 hover:text-white p-2">
-              <X className="w-5 h-5 sm:w-6 sm:h-6" />
-            </button>
+            <button onClick={() => {setIsAdminMode(false); setIsAuthorized(false);}} className="absolute top-4 right-4 sm:top-8 sm:right-8 text-slate-500 hover:text-white p-2"><X className="w-5 h-5 sm:w-6 sm:h-6" /></button>
             {!isAuthorized ? (
               <form onSubmit={handleAdminLogin} className="space-y-6 sm:space-y-8 py-4">
-                <div className="text-center">
-                  <Key className="w-10 h-10 sm:w-12 sm:h-12 text-cyan-500 mx-auto mb-4" />
-                  <h2 className="text-xl sm:text-2xl font-black uppercase">Acceso Panel</h2>
-                </div>
-                <input 
-                  type="password" 
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                  placeholder="Contraseña"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl px-4 sm:px-6 py-3 sm:py-4 text-white focus:border-cyan-500/50 outline-none text-sm"
-                  autoFocus
-                />
+                <div className="text-center"><Key className="w-10 h-10 sm:w-12 sm:h-12 text-cyan-500 mx-auto mb-4" /><h2 className="text-xl sm:text-2xl font-black uppercase">Acceso Panel</h2></div>
+                <input type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="Contraseña" className="w-full bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl px-4 sm:px-6 py-3 sm:py-4 text-white focus:border-cyan-500/50 outline-none text-sm" autoFocus />
                 <button className="w-full py-3 sm:py-4 bg-cyan-500 text-slate-950 font-black rounded-xl sm:rounded-2xl uppercase tracking-widest text-xs sm:text-sm shadow-xl active:scale-95 transition-transform">Entrar</button>
               </form>
             ) : (
@@ -479,19 +428,10 @@ export default function App() {
                   </form>
                 ) : (
                   <div className="space-y-4 sm:space-y-6">
-                    <div className="text-center">
-                        <Layers className="w-8 h-8 sm:w-10 sm:h-10 text-cyan-500 mx-auto mb-2" />
-                        <h2 className="text-lg sm:text-xl font-black uppercase">Netlify Deploy</h2>
-                    </div>
+                    <div className="text-center"><Layers className="w-8 h-8 sm:w-10 sm:h-10 text-cyan-500 mx-auto mb-2" /><h2 className="text-lg sm:text-xl font-black uppercase">Netlify Deploy</h2></div>
                     <div className="space-y-3 sm:space-y-4">
-                        <div className="p-3 sm:p-4 bg-slate-900 rounded-xl sm:rounded-2xl border border-white/5">
-                            <h4 className="text-[10px] font-black uppercase text-slate-500 mb-1">Paso 1: API_KEY</h4>
-                            <p className="text-[10px] sm:text-xs text-slate-300 leading-relaxed">Configura <code className="text-cyan-400">API_KEY</code> en Netlify.</p>
-                        </div>
-                        <div className="p-3 sm:p-4 bg-slate-900 rounded-xl sm:rounded-2xl border border-white/5">
-                            <h4 className="text-[10px] font-black uppercase text-slate-500 mb-1">Paso 2: Build</h4>
-                            <p className="text-[10px] sm:text-xs text-slate-300 leading-relaxed">Command: <code className="text-cyan-400">npm run build</code>, Dir: <code className="text-cyan-400">dist</code>.</p>
-                        </div>
+                        <div className="p-3 sm:p-4 bg-slate-900 rounded-xl sm:rounded-2xl border border-white/5"><h4 className="text-[10px] font-black uppercase text-slate-500 mb-1">Paso 1: API_KEY</h4><p className="text-[10px] sm:text-xs text-slate-300 leading-relaxed">Configura <code className="text-cyan-400">API_KEY</code> en Netlify.</p></div>
+                        <div className="p-3 sm:p-4 bg-slate-900 rounded-xl sm:rounded-2xl border border-white/5"><h4 className="text-[10px] font-black uppercase text-slate-500 mb-1">Paso 2: Build</h4><p className="text-[10px] sm:text-xs text-slate-300 leading-relaxed">Command: <code className="text-cyan-400">npm run build</code>, Dir: <code className="text-cyan-400">dist</code>.</p></div>
                     </div>
                   </div>
                 )}
