@@ -1,7 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult, RiskLevel } from "../types";
 
-// Netlify inyectará esto durante el build si se configura en el panel de Environment Variables
 const getApiKey = () => {
   return process.env.API_KEY || '';
 };
@@ -24,7 +23,7 @@ const analysisSchema = {
     threats: {
       type: Type.ARRAY,
       items: { type: Type.STRING },
-      description: "Lista de amenazas detectadas (ej: Phishing, Malware, Acortador no transparente, etc.)",
+      description: "Lista de amenazas detectadas",
     },
     recommendations: {
       type: Type.ARRAY,
@@ -44,10 +43,25 @@ const analysisSchema = {
   required: ["riskLevel", "score", "summary", "threats", "recommendations", "technicalDetails"]
 };
 
+const handleApiError = (error: any) => {
+  console.error("Detalle del error de API:", error);
+  const message = error?.message || "";
+  
+  if (message.includes("429") || message.toLowerCase().includes("quota")) {
+    throw new Error("Límite de consultas alcanzado. Por favor, espera un minuto antes de intentar otro escaneo.");
+  }
+  
+  if (message.includes("401") || message.includes("403")) {
+    throw new Error("Error de autenticación. Revisa la API KEY en la configuración.");
+  }
+
+  throw new Error("El servicio de inteligencia está saturado. Reintenta en unos instantes.");
+};
+
 export const analyzeUrl = async (url: string): Promise<AnalysisResult> => {
   const apiKey = getApiKey();
   if (!apiKey) {
-    throw new Error("API Key no configurada. Configúrala en el panel de Netlify.");
+    throw new Error("API Key no configurada.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -55,16 +69,9 @@ export const analyzeUrl = async (url: string): Promise<AnalysisResult> => {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Realiza un escaneo profundo de seguridad para la URL: ${url}. 
-      
-      INSTRUCCIONES:
-      1. Analiza el dominio, el protocolo y la estructura de la URL.
-      2. Si el enlace es un acortador de URLs (ej: bit.ly, t.co, tinyurl, cutt.ly, etc.), clasifícalo como DANGEROUS ya que ocultan el destino.
-      3. Busca señales de suplantación de identidad (typosquatting).
-      4. Clasifica el riesgo y devuelve el JSON según el esquema.`,
+      contents: `Realiza un escaneo profundo de seguridad para la URL: ${url}. Analiza el dominio, el protocolo y la estructura. Clasifica el riesgo y devuelve JSON.`,
       config: {
-        systemInstruction: "Eres un analista senior de ciberseguridad. Tu misión es detectar amenazas en URLs. Eres muy estricto y priorizas la seguridad del usuario. Devuelve siempre un objeto JSON válido.",
-        // Se elimina googleSearch porque no garantiza salida JSON según la documentación.
+        systemInstruction: "Eres un analista senior de ciberseguridad. Devuelve siempre un objeto JSON válido según el esquema proporcionado.",
         responseMimeType: "application/json",
         responseSchema: analysisSchema,
       },
@@ -72,30 +79,27 @@ export const analyzeUrl = async (url: string): Promise<AnalysisResult> => {
 
     const result = JSON.parse(response.text || "{}");
     
-    // Safety check manual para acortadores comunes por si la IA es indulgente
-    const shorteners = ['bit.ly', 't.co', 'tinyurl', 'cutt.ly', 'is.gd', 'buff.ly', 'ow.ly', 't.me', 'rebrand.ly', 'goo.gl', 'qr.net'];
+    // Safety check manual para acortadores
+    const shorteners = ['bit.ly', 't.co', 'tinyurl', 'cutt.ly', 'is.gd', 't.me', 'goo.gl'];
     const isShortener = shorteners.some(s => url.toLowerCase().includes(s));
     
     if (isShortener && result.riskLevel !== RiskLevel.DANGEROUS) {
       result.riskLevel = RiskLevel.DANGEROUS;
-      result.score = Math.max(result.score || 0, 90);
-      result.threats = result.threats || [];
-      result.threats.push("Uso de acortador de URL (Ocultación de destino)");
-      result.summary = "Este enlace utiliza un servicio de acortamiento que oculta el destino final, una táctica estándar en ataques de phishing.";
+      result.score = 95;
+      result.summary = "Este enlace utiliza un acortador para ocultar el destino real, técnica común en estafas.";
     }
 
     return {
       url,
       riskLevel: (result.riskLevel as RiskLevel) || RiskLevel.UNKNOWN,
       score: result.score || 0,
-      summary: result.summary || "No se pudo generar un resumen.",
+      summary: result.summary || "Análisis completado.",
       threats: result.threats || [],
       recommendations: result.recommendations || [],
       technicalDetails: result.technicalDetails || { protocol: 'N/A', isIpAddress: false, hasPunycode: false }
     };
   } catch (error) {
-    console.error("Error en analyzeUrl:", error);
-    throw error;
+    return handleApiError(error);
   }
 };
 
@@ -106,50 +110,41 @@ export const extractUrlFromQr = async (base64Image: string): Promise<string> => 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: [
-        {
-          inlineData: {
-            data: base64Image.split(',')[1] || base64Image,
-            mimeType: "image/jpeg"
-          }
-        },
-        { text: "Extrae únicamente la URL contenida en este código QR. Si no hay URL, indica 'No URL found'. Responde solo con la URL plana." }
+        { inlineData: { data: base64Image.split(',')[1] || base64Image, mimeType: "image/jpeg" } },
+        { text: "Extrae únicamente la URL de este código QR. Si no hay, responde 'No URL'." }
       ]
     });
     
     const extracted = response.text?.trim() || '';
     if (extracted.toLowerCase().includes('no url')) {
-      throw new Error("No se detectó una URL válida en la imagen.");
+      throw new Error("No se detectó una URL en este código QR.");
     }
     return extracted;
   } catch (error) {
-    console.error("Error en extractUrlFromQr:", error);
-    throw new Error("No se pudo leer el QR.");
+    return handleApiError(error);
   }
 };
 
 export const getDailySecurityTips = async (): Promise<string[]> => {
   const apiKey = getApiKey();
-  if (!apiKey) return ["Configura tu API_KEY para recibir consejos actualizados."];
+  if (!apiKey) return ["Navega siempre con precaución."];
   
   const ai = new GoogleGenAI({ apiKey });
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: "Genera 3 consejos breves de ciberseguridad para hoy.",
+      contents: "Genera 3 consejos breves de ciberseguridad.",
       config: {
         responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: { type: Type.STRING }
-        }
+        responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
       }
     });
     return JSON.parse(response.text || "[]");
   } catch (error) {
     return [
-      "No compartas tus contraseñas con nadie.",
-      "Activa siempre la autenticación de dos factores (2FA).",
-      "Desconfía de enlaces que prometen premios increíbles."
+      "No compartas contraseñas por chat.",
+      "Activa la verificación en dos pasos.",
+      "Revisa siempre el remitente de los correos."
     ];
   }
 };
