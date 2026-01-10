@@ -102,7 +102,7 @@ const StatBadge: React.FC<{ label: string, value: number, colorClass: string, ic
       {React.cloneElement(icon as React.ReactElement, { className: 'w-4 h-4 sm:w-5 sm:h-5' })}
     </div>
     <div className="min-w-0">
-      <div className="text-xl sm:text-2xl font-black tracking-tighter leading-none truncate">{value}</div>
+      <div className="text-xl sm:text-2xl font-black tracking-tighter leading-none truncate">{value.toLocaleString()}</div>
       <div className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-500 mt-1 truncate">{label}</div>
     </div>
   </div>
@@ -125,12 +125,25 @@ export default function App() {
   const [newScamBody, setNewScamBody] = useState('');
   const [adminTab, setAdminTab] = useState<'news' | 'deploy'>('news');
 
-  const [stats, setStats] = useState({
-    total: 0,
-    safe: 0,
-    suspicious: 0,
-    dangerous: 0
+  // Inicialización de estadísticas reseteadas a cero para comenzar un recuento limpio
+  const [stats, setStats] = useState(() => {
+    const savedStats = localStorage.getItem('tranquilink_stats');
+    if (savedStats) {
+      return JSON.parse(savedStats);
+    }
+    // Comenzamos desde cero como se solicitó
+    return {
+      total: 0,
+      safe: 0,
+      suspicious: 0,
+      dangerous: 0
+    };
   });
+
+  // Persistir estadísticas cada vez que cambien
+  useEffect(() => {
+    localStorage.setItem('tranquilink_stats', JSON.stringify(stats));
+  }, [stats]);
 
   useEffect(() => {
     getDailySecurityTips().then(setTips);
@@ -164,6 +177,7 @@ export default function App() {
       const analysis = await analyzeUrl(formattedUrl);
       setResult(analysis);
 
+      // Actualizar contadores globales persistentes
       setStats(prev => ({
         total: prev.total + 1,
         safe: analysis.riskLevel === RiskLevel.SAFE ? prev.safe + 1 : prev.safe,
@@ -259,24 +273,25 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 lg:py-20">
         
+        {/* Contadores acumulativos */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-10 sm:mb-16">
-          <StatBadge label="Analizadas" value={stats.total} colorClass="text-blue-500" icon={<Search />} />
-          <StatBadge label="Seguros" value={stats.safe} colorClass="text-emerald-500" icon={<ShieldCheck />} />
+          <StatBadge label="Total Analizadas" value={stats.total} colorClass="text-blue-500" icon={<Search />} />
+          <StatBadge label="Enlaces Seguros" value={stats.safe} colorClass="text-emerald-500" icon={<ShieldCheck />} />
           <StatBadge label="Sospechosos" value={stats.suspicious} colorClass="text-amber-500" icon={<AlertTriangle />} />
-          <StatBadge label="Peligros" value={stats.dangerous} colorClass="text-rose-500" icon={<ShieldX />} />
+          <StatBadge label="Peligros Evitados" value={stats.dangerous} colorClass="text-rose-500" icon={<ShieldX />} />
         </div>
 
         <div className="grid lg:grid-cols-2 gap-10 lg:gap-20 items-center">
           <div className="space-y-6 sm:space-y-10 text-center lg:text-left">
             <div className="space-y-3 sm:space-y-4">
               <div className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[8px] sm:text-[10px] font-black uppercase tracking-[0.2em]">
-                <Globe className="w-3 h-3" /> Inteligencia Activa
+                <Globe className="w-3 h-3" /> Red de Inteligencia Activa
               </div>
               <h1 className="text-4xl sm:text-6xl lg:text-8xl font-black leading-[1.1] sm:leading-[0.9] tracking-tighter">
                 Escudo <span className="text-transparent bg-clip-text bg-gradient-to-br from-cyan-400 to-blue-600">Digital</span>
               </h1>
               <p className="text-base sm:text-xl text-slate-400 max-w-lg mx-auto lg:mx-0 leading-relaxed font-medium">
-                Analizamos cada enlace y código QR cruzando múltiples fuentes de inteligencia en tiempo real.
+                Analizamos cada enlace y código QR cruzando múltiples fuentes de inteligencia en tiempo real. Tu seguridad es nuestra prioridad.
               </p>
             </div>
 
