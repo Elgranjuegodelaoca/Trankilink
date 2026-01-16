@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult, RiskLevel } from "../types";
 
@@ -40,10 +39,16 @@ const analysisSchema = {
   required: ["riskLevel", "score", "summary", "threats", "recommendations", "technicalDetails"]
 };
 
+// Handle API errors following the strict guidelines for API key management and quota limits.
 const handleApiError = (error: any) => {
   console.error("Detalle completo del error:", error);
   const errorMessage = error?.message || "";
   const status = error?.status;
+
+  // Rule: If request fails with 'Requested entity was not found', inform user to re-select key.
+  if (errorMessage.includes("Requested entity was not found.")) {
+    throw new Error("Clave de API no válida o proyecto sin facturación. Por favor, selecciona una clave de un proyecto con facturación habilitada en el menú superior.");
+  }
 
   if (status === 429 || errorMessage.includes("429") || errorMessage.toLowerCase().includes("quota")) {
     throw new Error("Límite de cuota alcanzado. Para continuar analizando sin esperas, configura tu propia clave API personal desde el botón superior.");
@@ -61,7 +66,7 @@ const handleApiError = (error: any) => {
 };
 
 export const analyzeUrl = async (url: string): Promise<AnalysisResult> => {
-  // Always create a fresh instance with the environment API key as per rules.
+  // Always create a fresh instance with the environment API key to avoid stale key issues.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   try {
@@ -103,7 +108,7 @@ export const analyzeUrl = async (url: string): Promise<AnalysisResult> => {
 export const extractUrlFromQr = async (base64Image: string): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
-    // Fix: Correct multi-part content structure for multimodal input.
+    // multimodal input handling using correct parts structure.
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {

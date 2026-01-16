@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ShieldCheck, 
@@ -12,7 +11,7 @@ import {
   ExternalLink,
   Shield,
   BookOpen,
-  Cpu,
+  Cpu, 
   ArrowRight,
   Globe,
   Database,
@@ -40,14 +39,15 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 // Definición de tipos para el entorno global
 declare global {
-  // Fix: Separate interface definition for AIStudio to ensure identical modifiers and matching types as required by environment.
+  // Fix: Declare AIStudio interface and Window augmentation with optionality to match environment definitions.
   interface AIStudio {
     hasSelectedApiKey: () => Promise<boolean>;
     openSelectKey: () => Promise<void>;
   }
 
   interface Window {
-    aistudio: AIStudio;
+    // Fix: Make aistudio property optional to ensure identical modifiers with existing environment declarations.
+    aistudio?: AIStudio;
   }
 }
 
@@ -139,6 +139,7 @@ export default function App() {
 
   useEffect(() => {
     const checkKeyStatus = async () => {
+      // Fix: Use safe optional check for aistudio property
       if (window.aistudio) {
         const hasKey = await window.aistudio.hasSelectedApiKey();
         setHasPersonalKey(hasKey);
@@ -178,12 +179,16 @@ export default function App() {
   }, []);
 
   const handleKeySelection = async () => {
-    try {
-      await window.aistudio.openSelectKey();
-      setHasPersonalKey(true);
-      setError(null);
-    } catch (e) {
-      console.error("Error al seleccionar clave:", e);
+    // Fix: Add safety check for optional aistudio property access
+    if (window.aistudio) {
+      try {
+        await window.aistudio.openSelectKey();
+        // Rule: Assume key selection was successful and proceed.
+        setHasPersonalKey(true);
+        setError(null);
+      } catch (e) {
+        console.error("Error al seleccionar clave:", e);
+      }
     }
   };
 
@@ -255,7 +260,7 @@ export default function App() {
 
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminPassword === '9i8u7y*') setIsAuthorized(true);
+    if (adminPassword === '9i8u7y') setIsAuthorized(true);
     else alert('Contraseña incorrecta');
   };
 
