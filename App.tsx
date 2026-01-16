@@ -39,14 +39,12 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 // Definición de tipos para el entorno global
 declare global {
-  // Fix: Declare AIStudio interface and Window augmentation with optionality to match environment definitions.
   interface AIStudio {
     hasSelectedApiKey: () => Promise<boolean>;
     openSelectKey: () => Promise<void>;
   }
 
   interface Window {
-    // Fix: Make aistudio property optional to ensure identical modifiers with existing environment declarations.
     aistudio?: AIStudio;
   }
 }
@@ -139,7 +137,6 @@ export default function App() {
 
   useEffect(() => {
     const checkKeyStatus = async () => {
-      // Fix: Use safe optional check for aistudio property
       if (window.aistudio) {
         const hasKey = await window.aistudio.hasSelectedApiKey();
         setHasPersonalKey(hasKey);
@@ -179,11 +176,9 @@ export default function App() {
   }, []);
 
   const handleKeySelection = async () => {
-    // Fix: Add safety check for optional aistudio property access
     if (window.aistudio) {
       try {
         await window.aistudio.openSelectKey();
-        // Rule: Assume key selection was successful and proceed.
         setHasPersonalKey(true);
         setError(null);
       } catch (e) {
@@ -260,8 +255,12 @@ export default function App() {
 
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminPassword === '9i8u7y') setIsAuthorized(true);
-    else alert('Contraseña incorrecta');
+    // Se asegura de que la contraseña sea exactamente '9i8u7y' sin espacios adicionales.
+    if (adminPassword.trim() === '9i8u7y') {
+      setIsAuthorized(true);
+    } else {
+      alert('Contraseña incorrecta. Por favor, verifica el código e inténtalo de nuevo.');
+    }
   };
 
   const handleAddScam = (e: React.FormEvent) => {
